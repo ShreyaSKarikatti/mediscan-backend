@@ -8,7 +8,7 @@ import json
 app = Flask(__name__)
 
 # 🔐 Use environment variable (IMPORTANT)
-client = genai.Client(api_key=os.getenv("AIzaSyDhKvugeD5la7dVKqBgU4d5tfkc1bXeIDk"))
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
