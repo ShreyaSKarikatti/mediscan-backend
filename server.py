@@ -2,80 +2,89 @@ from flask import Flask, request, jsonify
 from google import genai
 from PIL import Image
 import os
-import re
 import json
+import re
 
 app = Flask(__name__)
 
-# ✅ API KEY from Render
+# ✅ Load API key
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 def clean_key(key):
     return key.strip().replace("_", " ").title()
 
 
-@app.route('/')
+@app.route("/")
 def home():
     return "Mediscan Backend Running ✅"
 
 
-@app.route('/analyze', methods=['POST'])
+@app.route("/analyze", methods=["POST"])
 def analyze():
     try:
-        if 'image' not in request.files:
+        if "image" not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
 
-        file = request.files['image']
+        file = request.files["image"]
         image = Image.open(file.stream)
 
         prompt = """
-Analyze this dialysis machine screen.
+You are an expert medical AI.
 
-Extract ALL visible parameters.
+Analyze this dialysis machine screen image.
 
-Return ONLY JSON:
+Extract ALL visible parameters dynamically.
 
+Rules:
+- Return ONLY JSON
+- No explanation
+- Include units
+- Extract everything visible
+- Detect model if present
+
+FORMAT:
 {
   "device_info": {
     "model": "Detected or Unknown"
   },
   "machine_parameters": {
-    "Parameter": "Value"
+    "Parameter Name": "Value"
   }
 }
 """
 
-        # ✅ CORRECT MODEL (THIS FIXES YOUR 404 ERROR)
+        # ✅ WORKING MODEL (IMPORTANT FIX)
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=[prompt, image]
         )
 
         text = response.text.strip()
-        print("RAW:", text)
 
-        # remove markdown if any
-        text = text.replace("```json", "").replace("```", "")
+        # Clean markdown
+        text = text.replace("```json", "").replace("```", "").strip()
 
-        match = re.search(r'\{[\s\S]*\}', text)
+        # Extract JSON safely
+        match = re.search(r"\{[\s\S]*\}", text)
 
         if not match:
-            return jsonify({"error": "Invalid JSON", "raw": text})
+            return jsonify({
+                "error": "Invalid JSON from AI",
+                "raw": text
+            })
 
         parsed = json.loads(match.group(0))
 
-        if "device_info" not in parsed:
-            parsed["device_info"] = {"model": "Unknown"}
-
-        if "machine_parameters" not in parsed:
-            parsed["machine_parameters"] = {}
+        # Ensure structure
+        parsed.setdefault("device_info", {"model": "Unknown"})
+        parsed.setdefault("machine_parameters", {})
 
         if not parsed["machine_parameters"]:
             parsed["machine_parameters"] = {
-                "Info": "No data detected"
+                "Info": "No data detected (try clearer image)"
             }
 
-        # clean keys
+        # Clean keys
         parsed["machine_parameters"] = {
             clean_key(k): v
             for k, v in parsed["machine_parameters"].items()
@@ -87,10 +96,10 @@ Return ONLY JSON:
         return jsonify({"error": str(e)}), 500
 
 
-# ✅ Render
-if __name__ == '__main__':
+# ✅ Required for Render
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host="0.0.0.0", port=port)
 
 # from flask import Flask, request, jsonify
 # from google import genai
