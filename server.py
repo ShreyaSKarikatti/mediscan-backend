@@ -7,7 +7,7 @@ import json
 
 app = Flask(__name__)
 
-# ✅ Load API key safely
+# ✅ Load API key
 api_key = os.getenv("GEMINI_API_KEY")
 client = genai.Client(api_key=api_key)
 
@@ -20,21 +20,18 @@ def home():
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
-        # ✅ Validate input
         if 'image' not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
 
         file = request.files['image']
-        machine = request.form.get("machine", "default")
+        machine = request.form.get("machine", "Unknown")
 
         image = Image.open(file.stream)
 
-        # 🎯 PROMPTS (STRICT + CLEAN JSON)
+        # 🎯 SMART PROMPT HANDLING
         if machine == "Fresenius 5008":
             prompt = """
-Extract data from dialysis machine screen.
-
-Return ONLY valid JSON (no explanation, no text outside JSON):
+Return ONLY JSON:
 
 {
   "device_info": {
@@ -55,9 +52,7 @@ Return ONLY valid JSON (no explanation, no text outside JSON):
 
         elif machine == "Fresenius 4008 S":
             prompt = """
-Extract data from dialysis machine screen.
-
-Return ONLY valid JSON (no explanation, no text outside JSON):
+Return ONLY JSON:
 
 {
   "device_info": {
@@ -81,34 +76,39 @@ Return ONLY valid JSON (no explanation, no text outside JSON):
 """
 
         else:
-            prompt = """
-Extract all visible data.
+            # ✅ Generic fallback (VERY IMPORTANT)
+            prompt = f"""
+Extract all visible parameters from this dialysis machine screen.
 
-Return ONLY valid JSON:
+Return ONLY JSON:
 
-{
-  "device_info": {
-    "model": "Unknown"
-  },
-  "machine_parameters": {}
-}
+{{
+  "device_info": {{
+    "model": "{machine}"
+  }},
+  "machine_parameters": {{
+    "Parameter 1": "",
+    "Parameter 2": "",
+    "Parameter 3": ""
+  }}
+}}
 """
 
-        # 🚀 Gemini API (optimized)
+        # 🚀 Gemini API call
         response = client.models.generate_content(
             model="gemini-1.5-flash",
             contents=[prompt, image],
         )
 
         text = response.text.strip()
-        print("RAW GEMINI OUTPUT:\n", text)
+        print("RAW OUTPUT:\n", text)
 
-        # ✅ Robust JSON extraction
+        # ✅ Extract JSON safely
         match = re.search(r'\{.*\}', text, re.DOTALL)
 
         if not match:
             return jsonify({
-                "error": "No valid JSON found",
+                "error": "Invalid JSON from Gemini",
                 "raw": text
             })
 
@@ -119,6 +119,10 @@ Return ONLY valid JSON:
     except Exception as e:
         print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
 
 
 # ✅ Required for Render
