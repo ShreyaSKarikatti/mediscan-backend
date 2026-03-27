@@ -7,24 +7,34 @@ import json
 
 app = Flask(__name__)
 
-# 🔐 Use environment variable (IMPORTANT)
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# ✅ Load API key safely
+api_key = os.getenv("GEMINI_API_KEY")
+client = genai.Client(api_key=api_key)
+
+
+@app.route('/')
+def home():
+    return "Mediscan Backend Running ✅"
+
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
+        # ✅ Validate input
+        if 'image' not in request.files:
+            return jsonify({"error": "No image uploaded"}), 400
+
         file = request.files['image']
         machine = request.form.get("machine", "default")
 
         image = Image.open(file.stream)
 
-        # 🎯 MACHINE-SPECIFIC PROMPTS (UPDATED STRUCTURE)
-
+        # 🎯 PROMPTS (STRICT + CLEAN JSON)
         if machine == "Fresenius 5008":
             prompt = """
 Extract data from dialysis machine screen.
 
-Return STRICT JSON:
+Return ONLY valid JSON (no explanation, no text outside JSON):
 
 {
   "device_info": {
@@ -47,7 +57,7 @@ Return STRICT JSON:
             prompt = """
 Extract data from dialysis machine screen.
 
-Return STRICT JSON:
+Return ONLY valid JSON (no explanation, no text outside JSON):
 
 {
   "device_info": {
@@ -74,7 +84,7 @@ Return STRICT JSON:
             prompt = """
 Extract all visible data.
 
-Return STRICT JSON:
+Return ONLY valid JSON:
 
 {
   "device_info": {
@@ -84,36 +94,153 @@ Return STRICT JSON:
 }
 """
 
-        # 🚀 Gemini call (FIXED ORDER + FASTER MODEL)
+        # 🚀 Gemini API (optimized)
         response = client.models.generate_content(
             model="gemini-1.5-flash",
-            contents=[prompt, image]
+            contents=[prompt, image],
         )
 
-        text = response.text
+        text = response.text.strip()
         print("RAW GEMINI OUTPUT:\n", text)
 
-        # ✅ SAFE JSON extraction
+        # ✅ Robust JSON extraction
         match = re.search(r'\{.*\}', text, re.DOTALL)
 
-        if match:
-            parsed = json.loads(match.group(0))
-
+        if not match:
             return jsonify({
-                "result": parsed
-            })
-        else:
-            return jsonify({
-                "error": "Invalid JSON from Gemini",
+                "error": "No valid JSON found",
                 "raw": text
             })
 
+        parsed = json.loads(match.group(0))
+
+        return jsonify({"result": parsed})
+
     except Exception as e:
+        print("ERROR:", str(e))
         return jsonify({"error": str(e)}), 500
 
 
+# ✅ Required for Render
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
+# from flask import Flask, request, jsonify
+# from google import genai
+# from PIL import Image
+# import os
+# import re
+# import json
+
+# app = Flask(__name__)
+
+# # 🔐 Use environment variable (IMPORTANT)
+# client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+# @app.route('/analyze', methods=['POST'])
+# def analyze():
+#     try:
+#         file = request.files['image']
+#         machine = request.form.get("machine", "default")
+
+#         image = Image.open(file.stream)
+
+#         # 🎯 MACHINE-SPECIFIC PROMPTS (UPDATED STRUCTURE)
+
+#         if machine == "Fresenius 5008":
+#             prompt = """
+# Extract data from dialysis machine screen.
+
+# Return STRICT JSON:
+
+# {
+#   "device_info": {
+#     "model": "Fresenius 5008"
+#   },
+#   "machine_parameters": {
+#     "Date": "",
+#     "Remaining Time": "",
+#     "UF goal": "",
+#     "UF rate": "",
+#     "UF volume": "",
+#     "Blood flow": "",
+#     "VEN": "",
+#     "ART": ""
+#   }
+# }
+# """
+
+#         elif machine == "Fresenius 4008 S":
+#             prompt = """
+# Extract data from dialysis machine screen.
+
+# Return STRICT JSON:
+
+# {
+#   "device_info": {
+#     "model": "Fresenius 4008 S"
+#   },
+#   "machine_parameters": {
+#     "Date": "",
+#     "Time": "",
+#     "UF Volume": "",
+#     "UF Time Left": "",
+#     "UF Rate": "",
+#     "UF Goal": "",
+#     "Blood Flow": "",
+#     "Kt/V": "",
+#     "Arterial Pressure": "",
+#     "Venous Pressure": "",
+#     "TMP": "",
+#     "Conductivity": ""
+#   }
+# }
+# """
+
+#         else:
+#             prompt = """
+# Extract all visible data.
+
+# Return STRICT JSON:
+
+# {
+#   "device_info": {
+#     "model": "Unknown"
+#   },
+#   "machine_parameters": {}
+# }
+# """
+
+#         # 🚀 Gemini call (FIXED ORDER + FASTER MODEL)
+#         response = client.models.generate_content(
+#             model="gemini-1.5-flash",
+#             contents=[prompt, image]
+#         )
+
+#         text = response.text
+#         print("RAW GEMINI OUTPUT:\n", text)
+
+#         # ✅ SAFE JSON extraction
+#         match = re.search(r'\{.*\}', text, re.DOTALL)
+
+#         if match:
+#             parsed = json.loads(match.group(0))
+
+#             return jsonify({
+#                 "result": parsed
+#             })
+#         else:
+#             return jsonify({
+#                 "error": "Invalid JSON from Gemini",
+#                 "raw": text
+#             })
+
+#     except Exception as e:
+#         return jsonify({"error": str(e)}), 500
+
+
+# if __name__ == '__main__':
+#     app.run(host='0.0.0.0', port=5000)
 
 
 # 🔐 Use environment variable (IMPORTANT)
