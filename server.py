@@ -7,109 +7,79 @@ import json
 
 app = Flask(__name__)
 
-# 🔐 API KEY (from Render Environment)
+# ✅ API KEY from Render
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
-
-# 🧠 Clean keys for better UI
 def clean_key(key):
     return key.strip().replace("_", " ").title()
 
 
-# ✅ Test route
 @app.route('/')
 def home():
     return "Mediscan Backend Running ✅"
 
 
-# 🚀 MAIN API
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
-        # 📸 Validate image
         if 'image' not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
 
         file = request.files['image']
         image = Image.open(file.stream)
 
-        # 🔥 STRONG UNIVERSAL PROMPT
         prompt = """
-You are an expert medical OCR system.
+Analyze this dialysis machine screen.
 
-Analyze this dialysis machine screen image carefully.
+Extract ALL visible parameters.
 
-STRICT TASK:
-- Identify ALL visible medical parameters
-- Extract EVERY label and its corresponding value
-- DO NOT miss any parameter
-- Detect machine model if visible
-
-RULES:
-- Return ONLY valid JSON
-- No explanation text
-- Preserve units (ml/h, mmHg, etc.)
-- If value unclear → return "N/A"
-
-OUTPUT FORMAT:
+Return ONLY JSON:
 
 {
   "device_info": {
-    "model": "Exact model name if visible else Unknown"
+    "model": "Detected or Unknown"
   },
   "machine_parameters": {
-    "Parameter Name": "Value"
+    "Parameter": "Value"
   }
 }
-
-IMPORTANT:
-- machine_parameters MUST NOT be empty
 """
 
-        # 🚀 Gemini call
+        # ✅ CORRECT MODEL (THIS FIXES YOUR 404 ERROR)
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-2.0-flash",
             contents=[prompt, image]
         )
 
-        text = response.text
-        print("\n🔥 RAW GEMINI OUTPUT:\n", text)
+        text = response.text.strip()
+        print("RAW:", text)
 
-        # 🧹 Remove markdown formatting
-        text = text.replace("```json", "").replace("```", "").strip()
+        # remove markdown if any
+        text = text.replace("```json", "").replace("```", "")
 
-        # 🧠 Extract JSON safely
         match = re.search(r'\{[\s\S]*\}', text)
 
         if not match:
-            return jsonify({
-                "error": "Invalid JSON from Gemini",
-                "raw": text
-            })
+            return jsonify({"error": "Invalid JSON", "raw": text})
 
         parsed = json.loads(match.group(0))
 
-        # ✅ Ensure structure
         if "device_info" not in parsed:
             parsed["device_info"] = {"model": "Unknown"}
 
         if "machine_parameters" not in parsed:
             parsed["machine_parameters"] = {}
 
-        # 🔥 Prevent empty UI
         if not parsed["machine_parameters"]:
             parsed["machine_parameters"] = {
-                "Error": "No parameters detected",
-                "Suggestion": "Try closer & clearer image"
+                "Info": "No data detected"
             }
 
-        # 🧼 Clean keys
+        # clean keys
         parsed["machine_parameters"] = {
             clean_key(k): v
             for k, v in parsed["machine_parameters"].items()
         }
-
-        print("✅ FINAL PARSED:", parsed)
 
         return jsonify({"result": parsed})
 
@@ -117,7 +87,7 @@ IMPORTANT:
         return jsonify({"error": str(e)}), 500
 
 
-# ✅ Render config
+# ✅ Render
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
