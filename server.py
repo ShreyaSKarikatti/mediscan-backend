@@ -18,50 +18,76 @@ def analyze():
 
         image = Image.open(file.stream)
 
-        # 🎯 MACHINE-SPECIFIC PROMPTS
+        # 🎯 MACHINE-SPECIFIC PROMPTS (UPDATED STRUCTURE)
+
         if machine == "Fresenius 5008":
             prompt = """
-Extract medical parameters from this dialysis machine screen.
+Extract data from dialysis machine screen.
 
-Return ONLY JSON:
+Return STRICT JSON:
+
 {
-  "Date": "",
-  "Remaining Time": "",
-  "UF goal": "",
-  "UF rate": "",
-  "UF volume": "",
-  "Blood flow": "",
-  "VEN": "",
-  "ART": ""
+  "device_info": {
+    "model": "Fresenius 5008"
+  },
+  "machine_parameters": {
+    "Date": "",
+    "Remaining Time": "",
+    "UF goal": "",
+    "UF rate": "",
+    "UF volume": "",
+    "Blood flow": "",
+    "VEN": "",
+    "ART": ""
+  }
 }
 """
+
         elif machine == "Fresenius 4008 S":
             prompt = """
-Extract medical parameters from this dialysis machine screen.
+Extract data from dialysis machine screen.
 
-Return ONLY JSON:
+Return STRICT JSON:
+
 {
-  "Date": "",
-  "Time": "",
-  "UF Volume": "",
-  "UF Time Left": "",
-  "UF Rate": "",
-  "UF Goal": "",
-  "Blood Flow": "",
-  "Kt/V": "",
-  "Arterial Pressure": "",
-  "Venous Pressure": "",
-  "TMP": "",
-  "Conductivity": ""
+  "device_info": {
+    "model": "Fresenius 4008 S"
+  },
+  "machine_parameters": {
+    "Date": "",
+    "Time": "",
+    "UF Volume": "",
+    "UF Time Left": "",
+    "UF Rate": "",
+    "UF Goal": "",
+    "Blood Flow": "",
+    "Kt/V": "",
+    "Arterial Pressure": "",
+    "Venous Pressure": "",
+    "TMP": "",
+    "Conductivity": ""
+  }
 }
 """
-        else:
-            prompt = "Extract all visible data and return JSON only."
 
-        # 🚀 Gemini call
+        else:
+            prompt = """
+Extract all visible data.
+
+Return STRICT JSON:
+
+{
+  "device_info": {
+    "model": "Unknown"
+  },
+  "machine_parameters": {}
+}
+"""
+
+        # 🚀 Gemini call (FIXED ORDER + FASTER MODEL)
         response = client.models.generate_content(
-            model="gemini-3-flash-preview",
-            contents=[image, prompt]
+            model="gemini-1.5-flash",
+            contents=[prompt, image]
         )
 
         text = response.text
@@ -72,7 +98,10 @@ Return ONLY JSON:
 
         if match:
             parsed = json.loads(match.group(0))
-            return jsonify({"result": parsed})
+
+            return jsonify({
+                "result": parsed
+            })
         else:
             return jsonify({
                 "error": "Invalid JSON from Gemini",
@@ -83,9 +112,133 @@ Return ONLY JSON:
         return jsonify({"error": str(e)}), 500
 
 
-# ✅ IMPORTANT for Render deployment
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+
+
+# 🔐 Use environment variable (IMPORTANT)
+# client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+# @app.route('/analyze', methods=['POST'])
+# def analyze():
+#     try:
+#         file = request.files['image']
+#         machine = request.form.get("machine", "default")
+
+#         image = Image.open(file.stream)
+
+#         # 🎯 MACHINE-SPECIFIC PROMPTS
+#         if machine == "Fresenius 5008":
+#             prompt = """
+# Extract medical parameters from this dialysis machine screen.
+
+# Return ONLY JSON:
+# {
+#   "Date": "",
+#   "Remaining Time": "",
+#   "UF goal": "",
+#   "UF rate": "",
+#   "UF volume": "",
+#   "Blood flow": "",
+#   "VEN": "",
+#   "ART": ""
+# }
+# """
+#         elif machine == "Fresenius 4008 S":
+#             prompt = """
+# Extract medical parameters from this dialysis machine screen.
+
+# Return ONLY JSON:
+# {
+#   "Date": "",
+#   "Time": "",
+#   "UF Volume": "",
+#   "UF Time Left": "",
+#   "UF Rate": "",
+#   "UF Goal": "",
+#   "Blood Flow": "",
+#   "Kt/V": "",
+#   "Arterial Pressure": "",
+#   "Venous Pressure": "",
+#   "TMP": "",
+#   "Conductivity": ""
+# }
+# """
+#         else:
+#             prompt = "Extract all visible data and return JSON only."
+
+#         # 🚀 Gemini call
+#         response = client.models.generate_content(
+#             model="gemini-3-flash-preview",
+#             contents=[image, prompt]
+#         )
+
+#         text = response.text
+#         print("RAW GEMINI OUTPUT:\n", text)
+
+#         # ✅ SAFE JSON extraction
+#         match = re.search(r'\{.*\}', text, re.DOTALL)
+
+#         if match:
+#             parsed = json.loads(match.group(0))
+#             return jsonify({"result": parsed})
+#         else:
+#             return jsonify({
+#                 "error": "Invalid JSON from Gemini",
+#                 "raw": text
+#             })
+
+#     except Exception as e:
+#         return jsonify({"error": str(e)}), 500
+
+
+# # ✅ IMPORTANT for Render deployment
+# if __name__ == '__main__':
+#     app.run(host='0.0.0.0', port=5000)
+
+# from flask import Flask, request, jsonify
+# import os
+# from img_scraping import getString
+
+# app = Flask(__name__)
+
+# UPLOAD_FOLDER = "uploads"
+# if not os.path.exists(UPLOAD_FOLDER):
+#     os.makedirs(UPLOAD_FOLDER)
+
+# @app.route("/extract", methods=["POST"])
+# def extract():
+#     try:
+#         # 📥 Get machine name
+#         machine = request.form.get("machine")
+
+#         # 📥 Get image file
+#         file = request.files.get("image")
+
+#         if not file:
+#             return jsonify({"error": "No image received"}), 400
+
+#         # 📁 Save image
+#         image_path = os.path.join(UPLOAD_FOLDER, file.filename)
+#         file.save(image_path)
+
+#         print("📷 Image received:", image_path)
+#         print("⚙️ Machine:", machine)
+
+#         # 🔥 Call your Python function
+#         result = getString(None, image_path, machine)
+
+#         print("✅ Result:", result)
+
+#         return jsonify({"result": result})
+
+#     except Exception as e:
+#         print("❌ ERROR:", str(e))
+#         return jsonify({"error": str(e)}), 500
+
+
+# if __name__ == "__main__":
+#     app.run(host="0.0.0.0", port=5000, debug=True)
 
 # from flask import Flask, request, jsonify
 # import os
