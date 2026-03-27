@@ -7,16 +7,16 @@ import json
 
 app = Flask(__name__)
 
-# 🔐 Load API Key from Render Environment
+# 🔐 API KEY (from Render Environment)
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
-# 🧠 Clean parameter keys for UI
+# 🧠 Clean keys for better UI
 def clean_key(key):
     return key.strip().replace("_", " ").title()
 
 
-# ✅ Test route (important for Render)
+# ✅ Test route
 @app.route('/')
 def home():
     return "Mediscan Backend Running ✅"
@@ -33,35 +33,40 @@ def analyze():
         file = request.files['image']
         image = Image.open(file.stream)
 
-        # 🔥 UNIVERSAL PROMPT (ALL MACHINES)
+        # 🔥 STRONG UNIVERSAL PROMPT
         prompt = """
-You are analyzing a dialysis machine display screen.
+You are an expert medical OCR system.
 
-TASK:
-Extract ALL visible medical parameters from the screen.
+Analyze this dialysis machine screen image carefully.
 
-IMPORTANT RULES:
+STRICT TASK:
+- Identify ALL visible medical parameters
+- Extract EVERY label and its corresponding value
+- DO NOT miss any parameter
+- Detect machine model if visible
+
+RULES:
 - Return ONLY valid JSON
-- Do NOT include explanations
-- Detect ALL labels dynamically
-- Extract label-value pairs exactly as seen
-- Include units if present
-- If value missing, return "N/A"
-- Detect MACHINE MODEL if visible
+- No explanation text
+- Preserve units (ml/h, mmHg, etc.)
+- If value unclear → return "N/A"
 
 OUTPUT FORMAT:
 
 {
   "device_info": {
-    "model": "Detected model name or Unknown"
+    "model": "Exact model name if visible else Unknown"
   },
   "machine_parameters": {
     "Parameter Name": "Value"
   }
 }
+
+IMPORTANT:
+- machine_parameters MUST NOT be empty
 """
 
-        # 🚀 Gemini API call
+        # 🚀 Gemini call
         response = client.models.generate_content(
             model="gemini-3-flash-preview",
             contents=[prompt, image]
@@ -70,7 +75,7 @@ OUTPUT FORMAT:
         text = response.text
         print("\n🔥 RAW GEMINI OUTPUT:\n", text)
 
-        # 🧹 Remove markdown formatting (```json)
+        # 🧹 Remove markdown formatting
         text = text.replace("```json", "").replace("```", "").strip()
 
         # 🧠 Extract JSON safely
@@ -84,42 +89,38 @@ OUTPUT FORMAT:
 
         parsed = json.loads(match.group(0))
 
-        # ✅ Ensure structure exists
+        # ✅ Ensure structure
         if "device_info" not in parsed:
             parsed["device_info"] = {"model": "Unknown"}
 
         if "machine_parameters" not in parsed:
             parsed["machine_parameters"] = {}
 
-        # 🔥 Prevent empty UI issue
+        # 🔥 Prevent empty UI
         if not parsed["machine_parameters"]:
             parsed["machine_parameters"] = {
-                "Info": "No parameters detected (try clearer image)"
+                "Error": "No parameters detected",
+                "Suggestion": "Try closer & clearer image"
             }
 
-        # 🧼 Clean keys for UI display
-        cleaned_params = {
+        # 🧼 Clean keys
+        parsed["machine_parameters"] = {
             clean_key(k): v
             for k, v in parsed["machine_parameters"].items()
         }
 
-        parsed["machine_parameters"] = cleaned_params
+        print("✅ FINAL PARSED:", parsed)
 
-        return jsonify({
-            "result": parsed
-        })
+        return jsonify({"result": parsed})
 
     except Exception as e:
-        return jsonify({
-            "error": str(e)
-        }), 500
+        return jsonify({"error": str(e)}), 500
 
 
-# ✅ Required for Render deployment
+# ✅ Render config
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-
 
 # from flask import Flask, request, jsonify
 # from google import genai
