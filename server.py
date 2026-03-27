@@ -7,104 +7,74 @@ import json
 
 app = Flask(__name__)
 
-# ✅ Load API key
-api_key = os.getenv("GEMINI_API_KEY")
-client = genai.Client(api_key=api_key)
+# 🔐 Load API Key from Render Environment
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
+# 🧠 Clean parameter keys for UI
+def clean_key(key):
+    return key.strip().replace("_", " ").title()
+
+
+# ✅ Test route (important for Render)
 @app.route('/')
 def home():
     return "Mediscan Backend Running ✅"
 
 
+# 🚀 MAIN API
 @app.route('/analyze', methods=['POST'])
 def analyze():
     try:
+        # 📸 Validate image
         if 'image' not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
 
         file = request.files['image']
-        machine = request.form.get("machine", "Unknown")
-
         image = Image.open(file.stream)
 
-        # 🎯 SMART PROMPT HANDLING
-        if machine == "Fresenius 5008":
-            prompt = """
-Return ONLY JSON:
+        # 🔥 UNIVERSAL PROMPT (ALL MACHINES)
+        prompt = """
+You are analyzing a dialysis machine display screen.
+
+TASK:
+Extract ALL visible medical parameters from the screen.
+
+IMPORTANT RULES:
+- Return ONLY valid JSON
+- Do NOT include explanations
+- Detect ALL labels dynamically
+- Extract label-value pairs exactly as seen
+- Include units if present
+- If value missing, return "N/A"
+- Detect MACHINE MODEL if visible
+
+OUTPUT FORMAT:
 
 {
   "device_info": {
-    "model": "Fresenius 5008"
+    "model": "Detected model name or Unknown"
   },
   "machine_parameters": {
-    "Date": "",
-    "Remaining Time": "",
-    "UF goal": "",
-    "UF rate": "",
-    "UF volume": "",
-    "Blood flow": "",
-    "VEN": "",
-    "ART": ""
+    "Parameter Name": "Value"
   }
 }
-"""
-
-        elif machine == "Fresenius 4008 S":
-            prompt = """
-Return ONLY JSON:
-
-{
-  "device_info": {
-    "model": "Fresenius 4008 S"
-  },
-  "machine_parameters": {
-    "Date": "",
-    "Time": "",
-    "UF Volume": "",
-    "UF Time Left": "",
-    "UF Rate": "",
-    "UF Goal": "",
-    "Blood Flow": "",
-    "Kt/V": "",
-    "Arterial Pressure": "",
-    "Venous Pressure": "",
-    "TMP": "",
-    "Conductivity": ""
-  }
-}
-"""
-
-        else:
-            # ✅ Generic fallback (VERY IMPORTANT)
-            prompt = f"""
-Extract all visible parameters from this dialysis machine screen.
-
-Return ONLY JSON:
-
-{{
-  "device_info": {{
-    "model": "{machine}"
-  }},
-  "machine_parameters": {{
-    "Parameter 1": "",
-    "Parameter 2": "",
-    "Parameter 3": ""
-  }}
-}}
 """
 
         # 🚀 Gemini API call
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=[prompt, image],
+            model="gemini-3-flash-preview",
+            contents=[prompt, image]
         )
 
-        text = response.text.strip()
-        print("RAW OUTPUT:\n", text)
+        text = response.text
+        print("\n🔥 RAW GEMINI OUTPUT:\n", text)
 
-        # ✅ Extract JSON safely
-        match = re.search(r'\{.*\}', text, re.DOTALL)
+        # 🧹 Remove markdown formatting (```json)
+        text = text.replace("```json", "").replace("```", "").strip()
+
+        # 🧠 Extract JSON safely
+        match = re.search(r'\{[\s\S]*\}', text)
 
         if not match:
             return jsonify({
@@ -114,20 +84,41 @@ Return ONLY JSON:
 
         parsed = json.loads(match.group(0))
 
-        return jsonify({"result": parsed})
+        # ✅ Ensure structure exists
+        if "device_info" not in parsed:
+            parsed["device_info"] = {"model": "Unknown"}
+
+        if "machine_parameters" not in parsed:
+            parsed["machine_parameters"] = {}
+
+        # 🔥 Prevent empty UI issue
+        if not parsed["machine_parameters"]:
+            parsed["machine_parameters"] = {
+                "Info": "No parameters detected (try clearer image)"
+            }
+
+        # 🧼 Clean keys for UI display
+        cleaned_params = {
+            clean_key(k): v
+            for k, v in parsed["machine_parameters"].items()
+        }
+
+        parsed["machine_parameters"] = cleaned_params
+
+        return jsonify({
+            "result": parsed
+        })
 
     except Exception as e:
-        print("ERROR:", str(e))
-        return jsonify({"error": str(e)}), 500
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 
+# ✅ Required for Render deployment
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
 
-
-# ✅ Required for Render
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
 
 # from flask import Flask, request, jsonify
 # from google import genai
