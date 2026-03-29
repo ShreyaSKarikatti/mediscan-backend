@@ -4,12 +4,15 @@ from PIL import Image
 import os
 import json
 import re
+import time
 
 app = Flask(__name__)
 
-# ✅ Load API key
+# ✅ API KEY
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+
+# ✅ CLEAN PARAMETER KEYS
 def clean_key(key):
     return key.strip().replace("_", " ").title()
 
@@ -22,25 +25,27 @@ def home():
 @app.route("/analyze", methods=["POST"])
 def analyze():
     try:
+        # ✅ CHECK IMAGE
         if "image" not in request.files:
             return jsonify({"error": "No image uploaded"}), 400
 
         file = request.files["image"]
         image = Image.open(file.stream)
 
+        # ✅ STRONG PROMPT (IMPORTANT)
         prompt = """
-You are an expert medical AI.
+You are an expert medical OCR AI specialized in dialysis machines.
 
-Analyze this dialysis machine screen image.
+TASK:
+Extract ALL visible data from the machine screen.
 
-Extract ALL visible parameters dynamically.
-
-Rules:
-- Return ONLY JSON
-- No explanation
-- Include units
-- Extract everything visible
-- Detect model if present
+RULES:
+- Return ONLY valid JSON (no explanation)
+- Extract every visible parameter
+- Include units (mmHg, ml/min, L, °C, etc.)
+- Detect machine model if visible
+- Do NOT miss small text
+- If unsure, still return best guess
 
 FORMAT:
 {
@@ -48,23 +53,33 @@ FORMAT:
     "model": "Detected or Unknown"
   },
   "machine_parameters": {
-    "Parameter Name": "Value"
+    "Parameter Name": "Value with unit"
   }
 }
 """
 
-        # ✅ WORKING MODEL (IMPORTANT FIX)
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=[prompt, image]
-        )
+        # ✅ RETRY LOGIC (FIX 429 ERROR)
+        response = None
+        for i in range(3):
+            try:
+                response = client.models.generate_content(
+                    model="gemini-1.5-flash-latest",  # ✅ FIXED MODEL
+                    contents=[prompt, image]
+                )
+                break
+            except Exception as e:
+                print(f"Retry {i+1}: {e}")
+                time.sleep(2)
+
+        if response is None:
+            return jsonify({"error": "AI request failed after retries"}), 500
 
         text = response.text.strip()
 
-        # Clean markdown
+        # ✅ CLEAN RESPONSE
         text = text.replace("```json", "").replace("```", "").strip()
 
-        # Extract JSON safely
+        # ✅ EXTRACT JSON
         match = re.search(r"\{[\s\S]*\}", text)
 
         if not match:
@@ -75,7 +90,7 @@ FORMAT:
 
         parsed = json.loads(match.group(0))
 
-        # Ensure structure
+        # ✅ SAFETY STRUCTURE
         parsed.setdefault("device_info", {"model": "Unknown"})
         parsed.setdefault("machine_parameters", {})
 
@@ -84,7 +99,7 @@ FORMAT:
                 "Info": "No data detected (try clearer image)"
             }
 
-        # Clean keys
+        # ✅ CLEAN KEYS
         parsed["machine_parameters"] = {
             clean_key(k): v
             for k, v in parsed["machine_parameters"].items()
@@ -96,7 +111,7 @@ FORMAT:
         return jsonify({"error": str(e)}), 500
 
 
-# ✅ Required for Render
+# ✅ RUN SERVER
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
